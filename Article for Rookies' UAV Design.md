@@ -1005,6 +1005,7 @@ https://github.com/user-attachments/assets/55cd8bfb-0d76-46a6-b050-dcfe4a1d222c
 
 ![9ef6a3181a4ecd286573067a5c9a8f6](https://github.com/user-attachments/assets/e28cbcda-1f0b-40b6-98a4-5084d1854a59)
 
+如果遇到坐标系不统一（比较明显的飘）的问题，可以采用以下方法调试：在认为水平的地方启动雷达，查看lidar节点终端输出的theta参数，将theta直接赋值为测量的认为水平地方的theta值。
 
 ### 4.4 视觉识别部分讲解
 

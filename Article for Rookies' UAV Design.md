@@ -444,14 +444,14 @@ Ego Planner最大的优点是不需要ESDF地图，在轨迹优化时不需要�
 
    我们从主函数所在的ego_planner_node.cpp文件开始，该文件中初始化Ego Planner的节点以后，通过rebo_replan.init函数,来调用Ego Planner算法相关的程序，rebo_replan.init函数的具体程序在ego_replan_fsm.cpp文件中
 
-rebo_replan.init(nh);
+```rebo_replan.init(nh);
 
 void EGOReplanFSM::init(ros::NodeHandle &nh)
-
+```
    ego_replan_fsm.cpp文件中execFSMCallback函数是状态基，用于处理在机器人运行过程中遇到各种情况下，是选择急停、还是重新规划、还是继续执行等。
 
    我们前面介绍的Ego Planner算法的具体程序都在ego_replan_fsm.cpp 文件中 callReboundReplan函数中调用的reboundReplan函数中。
-
+```
  bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
 
  bool plan_success =
@@ -464,12 +464,12 @@ bool EGOPlannerManager::reboundReplan(Eigen::Vector3d start_pt, Eigen::Vector3d 
                                         Eigen::Vector3d start_acc, Eigen::Vector3d local_target_pt,
                                         Eigen::Vector3d local_target_vel, bool flag_polyInit, bool flag_randomPolyTraj)
 
-
+```
 
    接下来，我们就顺着reboundReplan函数来看一下Ego Planner算法的流程
 
    首先是不考虑障碍物的情况下，生成从起点到目标点的光滑轨迹，如果之前已经有轨迹了，则初始轨迹就基于之前的轨迹来生成，这样保证在重规划时不会出现一会儿让无人机往左飞，一会儿让无人机往右飞，在几条轨迹间来回横跳的现象。
-
+```
   double ts = (start_pt - local_target_pt).norm() > 0.1 ? pp_.ctrl_pt_dist / pp_.max_vel_ * 1.2 : pp_.ctrl_pt_dist / pp_.max_vel_ * 5; // pp_.ctrl_pt_dist / pp_.max_vel_ is too tense, and will surely exceed the acc/vel limits
     vector<Eigen::Vector3d> point_set, start_end_derivatives;
     static bool flag_first_call = true, flag_force_polynomial = false;
@@ -493,32 +493,32 @@ bool EGOPlannerManager::reboundReplan(Eigen::Vector3d start_pt, Eigen::Vector3d 
 
       }
      } while (flag_regenerate);
-
+```
    上面生成的轨迹并不是B样条轨迹，接下来需要将其变成B样条轨迹（通过求解最小二乘问题获得B样条的控制带你来进行转换），该部分内容是通过调用parameterizeToBspline函数完成的，该函数的具体程序位于uniform_bspline.cpp文件中，该函数的输入参数中point_set是轨迹上的点，start_end_derivatives是起点和终点的高阶约束
-
+```
 UniformBspline::parameterizeToBspline(ts, point_set, start_end_derivatives, ctrl_pts);
 
   void UniformBspline::parameterizeToBspline(const double &ts, const vector<Eigen::Vector3d> &point_set,
                                              const vector<Eigen::Vector3d> &start_end_derivative,
                                              Eigen::MatrixXd &ctrl_pts)
 
-
+```
 
    转换完成后，我们就得到了后端优化的初值，然后执行轨迹优化，该部分内容是通过调用BsplineOptimizeTrajRebound函数来完成的，该函数的具体程序在bspline_optimizer.cpp中
-
+```
  /*** STEP 2: OPTIMIZE ***/
  
     bool flag_step_1_success = bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts, ts);
 
 
   bool BsplineOptimizer::BsplineOptimizeTrajRebound(Eigen::MatrixXd &optimal_points, double ts)
-
+```
    优化结束后，开始执行时间重分配，该部分内容通过调用refineTrajAlgo函数来完成，该函数的具体程序位于planner_manager.cpp文件中
-
+```
 flag_step_2_success = refineTrajAlgo(pos, start_end_derivatives, ratio, ts, optimal_control_points);
 
 bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vector3d> &start_end_derivative, double ratio, double &ts, Eigen::MatrixXd &optimal_control_points)
-
+```
    时间重分配流程结束后，就得到了最终的轨迹，将其发布出去
 
    3、重要函数的展开介绍（BsplineOptimizeTrajRebound和refineTrajAlgo）
@@ -526,7 +526,7 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
    我们先来看，完成轨迹优化的BsplineOptimizeTrajRebound函数
 
    该函数的具体程序在bspline_optimizer.cpp中，首先将时间间隔ts传给B样条曲线，然后调用rebound_optimize函数执行轨迹优化
-
+```
   bool BsplineOptimizer::BsplineOptimizeTrajRebound(Eigen::MatrixXd &optimal_points, double ts)
   {
     setBsplineInterval(ts);
@@ -537,13 +537,13 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
 
     return flag_success;
   }
-
+```
    在rebound_optimize函数中，调用了LBFGS优化器进行优化
-
+```
  int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimizer::costFunctionRebound, NULL, BsplineOptimizer::earlyExit, this, &lbfgs_params);
-
+```
    其核心是目标函数costFunctionRebound如何编写
-
+```
   double BsplineOptimizer::costFunctionRebound(void *func_data, const double *x, double *grad, const int n)
   {
     BsplineOptimizer *opt = reinterpret_cast<BsplineOptimizer *>(func_data);
@@ -554,9 +554,9 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
     opt->iter_num_ += 1;
     return cost;
   }
-
+```
    目标函数的具体表达式在costFunctionRebound函数调用的combineCostRebound函数中，该函数中又调用了calcSmoothnessCost、calcDistanceCostRebound、calcFeasibilityCost这三个函数，分别对应着目标函数中的平滑项、避障约束项、动力学约束项，其中calcDistanceCostRebound在计算避障约束项之前会先检测是否碰撞了障碍物，若是则会停止优化
-
+```
  void BsplineOptimizer::combineCostRebound(const double *x, double *grad, double &f_combine, const int n)
   {
 
@@ -579,11 +579,11 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
     Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + new_lambda2_ * g_distance + lambda3_ * g_feasibility;
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
   }
-
+```
    我们再来看一下，用于时间重分配的refineTrajAlgo函数
 
    首先要计算出新的合适的时间间隔，该部分内容在reparamBspline函数中完成，然后基于新的时间间隔计算新轨迹的初值，该部分内容主要在UniformBspline函数中完成，然后，再对新的轨迹进行优化，该部分内容在BsplineOptimizeTrajRefine中完成
-
+```
 bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vector3d> &start_end_derivative, double ratio, double &ts, Eigen::MatrixXd &optimal_control_points)
   {
     double t_inc;
@@ -604,9 +604,9 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
 
     return success;
   }
-
+```
    在BsplineOptimizeTrajRefine函数中，调用了refine_optimize函数来执行具体的优化过程。
-
+```
   bool BsplineOptimizer::BsplineOptimizeTrajRefine(const Eigen::MatrixXd &init_points, const double ts, Eigen::MatrixXd &optimal_points)
   {
 
@@ -619,10 +619,10 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
 
     return flag_success;
   }
-
+```
    refine_optimize函数中同样是调用了LBFGS求解器来就行优化过程，其核心依然是目标函数costFunctionRefine的给定
 
-  bool BsplineOptimizer::refine_optimize()
+```  bool BsplineOptimizer::refine_optimize()
 
 int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimizer::costFunctionRefine, NULL, NULL, this, &lbfgs_params);
 
@@ -638,10 +638,10 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
     opt->iter_num_ += 1;
     return cost;
   }
-
+```
    combineCostRefine函数中又调用了calcSmoothnessCost函数、calcFitnessCost函数、calcFeasibilityCost函数来分别计算平滑项、曲线拟合项、动力学约束项
 
-  void BsplineOptimizer::combineCostRefine(const double *x, double *grad, double &f_combine, const int n)
+```  void BsplineOptimizer::combineCostRefine(const double *x, double *grad, double &f_combine, const int n)
   {
 
     memcpy(cps_.points.data() + 3 * order_, x, n * sizeof(x[0]));
@@ -666,7 +666,7 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
     Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + lambda4_ * g_fitness + lambda3_ * g_feasibility;
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
 }
-
+```
 版权声明：本文为博主原创文章，遵循 CC 4.0 BY-SA 版权协议，转载请附上原文出处链接和本声明。                     
 原文链接：https://blog.csdn.net/qq_44339029/article/details/132641867                   
 原文链接：https://blog.csdn.net/qq_44339029/article/details/132655058

@@ -999,6 +999,13 @@ https://github.com/user-attachments/assets/55cd8bfb-0d76-46a6-b050-dcfe4a1d222c
 
 等待补充。
 
+如下图所示，该部分由于Mid-360存在安装角度，一般为14-16°左右，在LaserMapping.cpp文件中的雷达初始化角度修正代码，
+
+每次启动无人机，都会自动修正雷达坐标系和世界坐标系，理论上不加下面的代码的话，需要雷达正向水平朝上安装。
+
+![9ef6a3181a4ecd286573067a5c9a8f6](https://github.com/user-attachments/assets/e28cbcda-1f0b-40b6-98a4-5084d1854a59)
+
+
 ### 4.4 视觉识别部分讲解
 
 等待补充。

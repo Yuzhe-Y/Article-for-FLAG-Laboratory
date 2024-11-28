@@ -391,7 +391,7 @@ make px4_fmu-v6c_default upload #烧录固件
 
 本部分为本次比赛采用代码的对应原理讲解部分。本次比赛代码总共分为路径规划，运动控制与状态机，SLAM（同步定位与建图），视觉识别四部分，分别由：左远航（路径规划），杨宇哲（运动控制与状态机，SLAM），杨正南（视觉识别）三位同学负责。有任何有关代码上的问题请与这三位学长进行联系。此外，代码的构建还离不开实验室各位师兄师姐的贡献，是他们为我们提供了本次比赛的代码基础平台，大大减少了我们的工作量。如果存在我们无法解释的问题，还可以联系下列学长进行解答：路径规划：吴德龙学长，运动控制与状态机：华骏扬学长，施扬熹学长，SLAM：葛奕谷学长、杨淏宇学长，视觉识别：李昀皞同学。
 
-### 4.1 路径规划部分讲解
+### 4.1.1 Ego Planner原理
 
 Ego Planner最大的优点是不需要ESDF地图，在轨迹优化时不需要使用ESDF去构建避障的cost项，ESDF是一种栅格距离场，每个格子都存放着距离该格子最近的障碍物的距离，从下图右下角的柱状图可以看出EWOK、Fast-Planner算法都需要较长的时间去构建这个ESDF地图，如果不构建ESDF可以使得规划时间更短，如Ego Planner算法
 
@@ -411,11 +411,11 @@ Ego Planner最大的优点是不需要ESDF地图，在轨迹优化时不需要�
    后端时间重分配：由于Ego Planner的后端优化也是基于优化的控制点，采用均匀B样条来生成轨迹，所以也需要跟Fast Planner一样，进行时间重分配，所不同的是Ego Planner的时间重分配与Fast Planner的时间重分配所使用的方法思路是完全不一样的。
 接下来，我们来看一下轨迹与障碍物发生碰撞后，与碰撞反方向的推力是如何产生的
 
-   首先，我们要检查轨迹上的所有控制点，找出所有在障碍物里面的控制点，以及与该位于障碍物内部的控制点邻近的控制点，如下图中的左图所示，然后我们需要以这两个不在障碍物内部的邻近的控制点为起点和终点使用传统的A * 算法 搜索得到两点之间的一条可行路径，如下图中中间图的蓝色路径所示，然后计算在障碍物内部的点Q的速度方向，然后以这个速度方向为法向量，找到一个垂直于这个速度方向且过点Q的平面，如下图中右图的绿色平面所示，然后找这个平面与障碍物表面的交点，如下图中右图的p点所示，然后取向量v为由Q点指向p点方向上的单位向量，即v = p − Q ∣ ∣ p − Q ∣ ∣ v=\frac{p-Q}{||p-Q||}v= 
-∣∣p−Q∣∣
-p−Q
-​	
- ，这样就可以得到一个针对Q点的{p，v}对
+   首先，我们要检查轨迹上的所有控制点，找出所有在障碍物里面的控制点，以及与该位于障碍物内部的控制点邻近的控制点，如下图中的左图所示，然后我们需要以这两个不在障碍物内部的邻近的控制点为起点和终点使用传统的A * 算法 搜索得到两点之间的一条可行路径，如下图中中间图的蓝色路径所示，然后计算在障碍物内部的点Q的速度方向，然后以这个速度方向为法向量，找到一个垂直于这个速度方向且过点Q的平面，如下图中右图的绿色平面所示，然后找这个平面与障碍物表面的交点，如下图中右图的p点所示，然后取向量v为由Q点指向p点方向上的单位向量，即
+   
+   ![image](https://github.com/user-attachments/assets/4843a6ab-7d32-4b63-9339-eba9b41bf99d)
+
+ 这样就可以得到一个针对Q点的{p，v}对
  
 ![image](https://github.com/user-attachments/assets/f276c240-f964-4905-8354-83835580bb39)
 
@@ -683,8 +683,258 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
 
 ![image](https://github.com/user-attachments/assets/0da2b050-c12e-49aa-bcd9-336cbc07287c)
 
-在run_real.xml文件中设置最大规划出的运行速度的参数，在洞穴比赛中，不用实现高机动规划，可以适当设置慢速前进，1-1.5m为max_vel即可，其他两个参数不用动。
+在run_real.xml文件中设置最大规划出的运行速度的参数，在洞穴比赛中，不用实现高机动规划，可以适当设置慢速前进，进行充分的探索
+1-1.5m为max_vel即可，其他两个参数不用动。
+### 4.1.2 Ego Planner仿真
 
+官方仿真：https://github.com/ZJU-FAST-Lab/EGO-Planner-v2.git
+洞穴比赛搭建的仿真：这里我们手动搭建一个小仿真平台，Ego Planner仿真需要与状态及配合，single_offboard_fsm节点作为与轨迹规划通信的对象，可以在rviz中验证规划的有效性，规律以及状态机逻辑的有效性和规律。
+我们需要启动以下几个节点
+roscore
+python3 obs.py 
+上述代码运行障碍物生成文件，通过人为生成类型为Pointcloud2的障碍物类型，充当避障的障碍物。
+obs.py文件如下
+#!/usr/bin/env python
+
+import rospy
+import std_msgs.msg
+import sensor_msgs.msg
+import numpy as np
+def create_tunnel_and_obstacles():
+    # 隧道的参数
+    tunnel_length = 100.0  # 隧道长度
+    tunnel_width = 10.0    # 隧道宽度
+    tunnel_height = 5.0    # 隧道高度
+
+    # 隧道表面点的计算：上下表面每5米一个点，左右墙面是连续的
+    tunnel_points = []
+    
+    # 生成隧道的上、下表面和左右边界
+    for i in range(0, int(tunnel_length) + 1, 5):  # 每5米一个点
+        # 下边界
+        tunnel_points.append((i, -tunnel_width / 2, 0))  # 左下角
+        tunnel_points.append((i, tunnel_width / 2, 0))   # 右下角
+
+        # 上边界
+        tunnel_points.append((i, -tunnel_width / 2, tunnel_height))  # 左上角
+        tunnel_points.append((i, tunnel_width / 2, tunnel_height))   # 右上角
+
+    # 生成连续的左右侧墙面（在x轴方向密集）
+    for i in np.linspace(0, tunnel_length+10, 1000):  # 沿x轴方向更密集生成点
+        # 左侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):  # 高度方向均匀分布点
+            tunnel_points.append((i, -tunnel_width / 2, h))  # 左墙
+    for i in np.linspace(0, tunnel_length, 1000):
+        # 右侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):
+            tunnel_points.append((i, tunnel_width / 2, h))   # 右墙
+
+    # 固定障碍物位置（位于隧道中间）
+    obstacle_positions = []
+    base_obstacles = [
+        (5.0, 1.0),   # 障碍物1
+        (10.0, -2.0), # 障碍物2
+        (15.0, 0.0),  # 障碍物3
+        (20.0, 2.0),  # 障碍物4
+        (25.0, -1.5), # 障碍物5
+        (30.0, 1.5),  # 障碍物6
+        (35.0, -2.5), # 障碍物7
+        (40.0, 0.5),  # 障碍物8
+        (45.0, -1.0), # 障碍物9
+        (50.0, 2.0),  # 障碍物10
+        (55.0, -0.5), # 障碍物11
+        (60.0, 1.0),  # 障碍物12
+        (65.0, -1.2), # 障碍物13
+        (70.0, 2.5),  # 障碍物14
+        (75.0, 0.0),  # 障碍物15
+        (80.0, -2.0), # 障碍物16
+        (85.0, 1.5),  # 障碍物17
+        (90.0, -1.0), # 障碍物18
+        (95.0, 0.0),  # 障碍物19
+        (100.0, -1.5),# 障碍物20
+    ]
+    
+    # 为每个障碍物生成从 z=0 到 z=5 的多个点
+    for x, y in base_obstacles:
+        for z in np.linspace(0, 5.0, 20):  # 生成20个等间隔高度的点
+            obstacle_positions.append((x, y, z))
+
+    return np.array(tunnel_points), np.array(obstacle_positions)
+
+def create_tunnel_and_obstacles1():
+    # 隧道的参数
+    tunnel_length = 100.0  # 隧道长度
+    tunnel_width = 10.0    # 隧道宽度
+    tunnel_height = 5.0    # 隧道高度
+
+    # 隧道起始偏移量
+    tunnel_start_x = 105.0
+    tunnel_start_y = 5.0
+
+    # 隧道表面点的计算：左右表面每5米一个点，上下墙面是连续的
+    tunnel_points = []
+    
+    # 生成隧道的左、右表面和上下边界
+    for i in range(0, int(tunnel_length) + 1, 5):  # 每5米一个点
+        # 左边界
+        tunnel_points.append((tunnel_start_x - tunnel_width / 2, tunnel_start_y + i, 0))  # 左下角
+        tunnel_points.append((tunnel_start_x + tunnel_width / 2, tunnel_start_y + i, 0))  # 右下角
+
+        # 右边界
+        tunnel_points.append((tunnel_start_x - tunnel_width / 2, tunnel_start_y + i, tunnel_height))  # 左上角
+        tunnel_points.append((tunnel_start_x + tunnel_width / 2, tunnel_start_y + i, tunnel_height))  # 右上角
+
+    # 生成连续的上下侧墙面（在y轴方向密集） 
+    for i in np.linspace(0, tunnel_length, 1000):  # 沿y轴方向更密集生成点
+        # 下侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):  # 高度方向均匀分布点
+            tunnel_points.append((tunnel_start_x - tunnel_width / 2, tunnel_start_y + i, h))  # 左墙
+    for i in np.linspace(-10, tunnel_length, 1000):  # 沿y轴方向更密集生成点
+        # 上侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):
+            tunnel_points.append((tunnel_start_x + tunnel_width / 2, tunnel_start_y + i, h))   # 右墙
+
+    # 固定障碍物位置（位于隧道中间）
+    obstacle_positions = []
+    base_obstacles = [
+        (1.0, 5.0),   # 障碍物1
+        (-2.0, 10.0), # 障碍物2
+        (0.0, 15.0),  # 障碍物3
+        (2.0, 20.0),  # 障碍物4
+        (-1.5, 25.0), # 障碍物5
+        (1.5, 30.0),  # 障碍物6
+        (-2.5, 35.0), # 障碍物7
+        (0.5, 40.0),  # 障碍物8
+        (-1.0, 45.0), # 障碍物9
+        (2.0, 50.0),  # 障碍物10
+        (-0.5, 55.0), # 障碍物11
+        (1.0, 60.0),  # 障碍物12
+        (-1.2, 65.0), # 障碍物13
+        (2.5, 70.0),  # 障碍物14
+        (0.0, 75.0),  # 障碍物15
+        (-2.0, 80.0), # 障碍物16
+        (1.5, 85.0),  # 障碍物17
+        (-1.0, 90.0), # 障碍物18
+        (0.0, 95.0),  # 障碍物19
+        (-1.5, 100.0),# 障碍物20
+    ]
+    
+    # 为每个障碍物生成从 z=0 到 z=5 的多个点
+    for x, y in base_obstacles:
+        for z in np.linspace(0, 5.0, 20):  # 生成20个等间隔高度的点
+            obstacle_positions.append((tunnel_start_x + x, tunnel_start_y + y, z))
+
+    return np.array(tunnel_points), np.array(obstacle_positions)
+接着我们启动剩下节点
+
+
+
+
+def generate_random_points_around(point, num_points=100, range_size=1.0):
+    """
+    在一个点的周围生成随机点，形成填充。
+    :param point: 原始点 (x, y, z)
+    :param num_points: 在该点附近生成的随机点数量
+    :param range_size: 随机点的范围大小
+    :return: 随机点的数组
+    """
+    x, y, z = point
+    random_points = np.random.uniform(-range_size / 2, range_size / 2, (num_points, 3))  # 在立方体范围内随机分布
+    random_points += np.array([x, y, z])  # 平移到点的周围
+    return random_points
+
+def create_dense_pointcloud(points, num_points_per_point=100, range_size=1.0):
+    """
+    为每个输入的点生成大量随机点，形成稠密点云。
+    :param points: 原始点列表
+    :param num_points_per_point: 每个原始点生成的随机点数量
+    :param range_size: 每个原始点生成点云的范围
+    :return: 稠密点云
+    """
+    dense_points = []
+    for point in points:
+        random_points = generate_random_points_around(point, num_points=num_points_per_point, range_size=range_size)
+        dense_points.append(random_points)
+    return np.vstack(dense_points)
+
+def create_pointcloud_msg(points, frame_id):
+    # 创建 PointCloud2 消息
+    header = std_msgs.msg.Header()
+    header.stamp = rospy.Time.now()
+    header.frame_id = frame_id  # 你可以根据需要更改框架ID
+
+    # 将位置转换为 NumPy 数组并打包为 PointCloud2 消息
+    points_flat = points.astype(np.float32).flatten()  # 展平数组
+    cloud_msg = sensor_msgs.msg.PointCloud2()
+    cloud_msg.header = header
+    cloud_msg.height = 1
+    cloud_msg.width = points.shape[0]
+    cloud_msg.fields = [
+        sensor_msgs.msg.PointField(name="x", offset=0, datatype=sensor_msgs.msg.PointField.FLOAT32, count=1),
+        sensor_msgs.msg.PointField(name="y", offset=4, datatype=sensor_msgs.msg.PointField.FLOAT32, count=1),
+        sensor_msgs.msg.PointField(name="z", offset=8, datatype=sensor_msgs.msg.PointField.FLOAT32, count=1),
+    ]
+    cloud_msg.is_bigendian = False
+    cloud_msg.point_step = 12  # 每个点的字节大小
+    cloud_msg.row_step = cloud_msg.point_step * points.shape[0]
+    cloud_msg.data = points_flat.tobytes()
+    cloud_msg.is_dense = True
+
+    return cloud_msg
+
+def obstacle_publisher():
+    rospy.init_node('obstacle_publisher', anonymous=True)
+    
+    # 创建隧道和障碍物
+    tunnel_points1, obstacle_positions1 = create_tunnel_and_obstacles1()
+    tunnel_points, obstacle_positions = create_tunnel_and_obstacles()
+    # 在每个点周围生成稠密点云
+    dense_tunnel_points = create_dense_pointcloud(tunnel_points, num_points_per_point=1, range_size=1.0)
+    dense_obstacle_points = create_dense_pointcloud(obstacle_positions, num_points_per_point=50, range_size=1.0)
+
+    dense_tunnel_points1 = create_dense_pointcloud(tunnel_points1, num_points_per_point=1, range_size=1.0)
+    dense_obstacle_points1 = create_dense_pointcloud(obstacle_positions1, num_points_per_point=50, range_size=1.0)
+    # 合并隧道和障碍物的点云
+    combined_points = np.vstack((dense_tunnel_points, dense_obstacle_points,dense_tunnel_points1, dense_obstacle_points1))
+
+    pub_cloud = rospy.Publisher('cloud_registered', sensor_msgs.msg.PointCloud2, queue_size=10)
+    
+    rate = rospy.Rate(100)  # 发布频率 1 Hz
+
+    # 创建合并后的点云消息
+    cloud_msg = create_pointcloud_msg(combined_points, frame_id="world")
+
+    while not rospy.is_shutdown():
+        # 每次循环中只发布消息，而不重新生成点
+        pub_cloud.publish(cloud_msg)
+
+        rospy.loginfo(f"Published tunnel and obstacles with {len(combined_points)} points.")
+        rate.sleep()
+
+if __name__ == '__main__':
+    try:
+        obstacle_publisher()
+    except rospy.ROSInterruptException:
+        pass
+接着启动剩下的节点：
+source devel/setup.bash
+roslaunch fsm_ctrl swarm.launch
+上述为启动用户指令输入界面，通过socket通信切换指令
+source devel/setup.bash
+roslaunch fsm_ctrl single2.launch 
+上述同时启动状态机节点和mavros
+source devel/setup.bash
+roslaunch ego_planner happy_fly.launch 
+上述启动Ego Planner规划器
+source devel/setup.bash
+roslaunch so3_quadrotor_simulator simulator_example.launch 
+上述启动仿真器rviz
+
+启动节点后我们在rviz中首先订阅PointCloud2的点云类型，这里的点云类型是我们模拟的无人机机载电脑通过网线接收到的来自于Mid——360的点云信息
+
+![image](https://github.com/user-attachments/assets/863aaab0-a6f6-42b9-a57a-0ddf8d90628c)
+
+如上述所示的流程添加点云可视化，轨迹可视化，此时我们发现无人机的位置在0，0，1，这里我们也可以调节simulator_example.launch的参数来实现初始rviz中位置的变化
 
 
 

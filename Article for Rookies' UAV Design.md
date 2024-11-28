@@ -394,11 +394,16 @@ make px4_fmu-v6c_default upload #烧录固件
 ### 4.1 路径规划部分讲解
 
 Ego Planner最大的优点是不需要ESDF地图，在轨迹优化时不需要使用ESDF去构建避障的cost项，ESDF是一种栅格距离场，每个格子都存放着距离该格子最近的障碍物的距离，从下图右下角的柱状图可以看出EWOK、Fast-Planner算法都需要较长的时间去构建这个ESDF地图，如果不构建ESDF可以使得规划时间更短，如Ego Planner算法
+
 ![image](https://github.com/user-attachments/assets/fb768165-e0f4-41c3-9393-58bfe4b6c37e)
+
 除了构建ESDF地图需要耗费较长时间之外，在建图的时候只能看见障碍物的表面，如下图中的右图所示，看不见障碍物的后面/内部，在优化的过程中会使用ESDF去产生一个排斥轨迹远离障碍物，在下图所示的例子中，上面的障碍物将轨迹往下推，下面的障碍物将轨迹往上推，会出现轨迹卡在障碍物中的情况。所以ESDF存在构建时间长、对避障cost构建的缺点等问题
 ![image](https://github.com/user-attachments/assets/4c957b37-2f60-4bec-b0d7-6b6c26066cec)
+
 在不使用ESDF地图的前提下，Ego Planner是如何实现将轨迹推到无障碍物区域呢？其核心思想是，轨迹在优化的过程中，如果轨迹与障碍物发生碰撞，我们就基于这个碰撞对轨迹产生一个反方向的力来把轨迹推出来，远离刚刚碰到的障碍物
+
 ![d698c7e1b3dfa94386f56d238f7e3592](https://github.com/user-attachments/assets/1eb72b01-82ef-4b74-947b-22a34b8ababe)
+
 前端：Fast Planner的前端使用的是Hybrid A * 算法，而Ego Planner并不需要一个与障碍物不发生碰撞的初值轨迹，所以它的前端不需要Hybrid A * 这种比较复杂的算法，它只需要一条不考虑障碍物，满足给定起点和目标点状态的轨迹即可，然后在后端优化中再把轨迹优化成无碰撞的
 
    后端轨迹优化：相比于Fast Planner，Ego Planner在后端优化中在每次迭代中对优化后的轨迹需要增加检查轨迹是否发送碰撞的流程，如下图的check collision所示，如果没有发生碰撞，则继续迭代优化轨迹，如果发生了碰撞，就需要针对这个碰撞，加一个新的推力的cost，此时优化问题发生了变化，不能再针对原问题继续优化下去，需要针对新问题重新开始优化。即基于当前优化的结果再加上新的cost，再去进行优化。
@@ -411,11 +416,15 @@ Ego Planner最大的优点是不需要ESDF地图，在轨迹优化时不需要�
 p−Q
 ​	
  ，这样就可以得到一个针对Q点的{p，v}对
+ 
 ![image](https://github.com/user-attachments/assets/f276c240-f964-4905-8354-83835580bb39)
 
 ![image](https://github.com/user-attachments/assets/07d68a6c-07ec-4f68-9036-22c7c6b6493f)
+
  Fast-Planner将轨迹参数化为非均匀B样条，检查井将超过速度、加速度限制的控制点所影响的时间区间采用迭代的方式进行扩大。·如果在轨迹初状态的周围调整时间，会导致轨迹的初状态的高阶量发生变化，从而导致轨迹在飞行的时候会有一些抖动。在Ego Planner中，会根据安全轨迹重新生成合理时间分配的均匀B样条轨迹。它的目标是使得时间分配更合理的B样条在位置上更加贴合之前优化出来的轨迹，并尽可能的满足动力学要求和平滑要求。
+ 
  ![image](https://github.com/user-attachments/assets/d70a1530-ea28-4601-8475-c3e8ed859f58)
+ 
  最后，再来总结一下Ego Planner框架的流程
 
    首先，我们可以通过非常简单天真的方法（不考虑障碍物），得到一条比较光滑的从起点到目标点的B样条曲线的初值，然后使用均匀的B样条去做轨迹优化，轨迹优化过程中，如果发现控制点碰到障碍物，就将该碰撞产生的新cost项，加入到优化的目标函数中，重新进行轨迹优化，直至收敛得到无碰撞的满足需求的解，然后再进行时间的重分配，依然使用均匀B样条，先计算出新的时间间隔△t，然后用最小二乘计算出一个新轨迹控制点初值，然后进行优化，使得新轨迹在新的时间与原轨迹在对应旧时间的位置上尽可能贴合，并满足光滑，动力学约束等，这个过程更像是一个曲线拟合问题，最终得到我们需要的轨迹。
@@ -425,41 +434,41 @@ p−Q
 
    在planner文件夹中包含多个功能包，各功能包的作用如下：
 
-   （1）、bspline_opt ：均匀B样条，用于轨迹优化
+   （1）bspline_opt ：均匀B样条，用于轨迹优化
 
-   （2）、path_searching：dynamic A * 算法，但在Ego Planner的规划过程中并没有用到
+   （2）path_searching：dynamic A * 算法，但在Ego Planner的规划过程中并没有用到
 
-   （3）、plan_env：用于地图生成
+   （3）plan_env：用于地图生成
 
-   （4）、plan_manage：主文件夹，主节点所在文件夹
+   （4）plan_manage：主文件夹，主节点所在文件夹
 
-   （5）、traj_utils：可视化及多项式轨迹类的相关内容
+   （5）traj_utils：可视化及多项式轨迹类的相关内容
  2、Ego Planner程序框架/流程
 
    我们从主函数所在的ego_planner_node.cpp文件开始，该文件中初始化Ego Planner的节点以后，通过rebo_replan.init函数,来调用Ego Planner算法相关的程序，rebo_replan.init函数的具体程序在ego_replan_fsm.cpp文件中
 
 rebo_replan.init(nh);
-1
+
 void EGOReplanFSM::init(ros::NodeHandle &nh)
-1
+
    ego_replan_fsm.cpp文件中execFSMCallback函数是状态基，用于处理在机器人运行过程中遇到各种情况下，是选择急停、还是重新规划、还是继续执行等。
 
    我们前面介绍的Ego Planner算法的具体程序都在ego_replan_fsm.cpp 文件中 callReboundReplan函数中调用的reboundReplan函数中。
 
  bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
-1
+
  bool plan_success =
         planner_manager_->reboundReplan(start_pt_, start_vel_, start_acc_, local_target_pt_, local_target_vel_, (have_new_target_ || flag_use_poly_init), flag_randomPolyTraj);
-1
-2
+
+
    reboundReplan函数的具体程序在planner_manager.cpp文件中
 
 bool EGOPlannerManager::reboundReplan(Eigen::Vector3d start_pt, Eigen::Vector3d start_vel,
                                         Eigen::Vector3d start_acc, Eigen::Vector3d local_target_pt,
                                         Eigen::Vector3d local_target_vel, bool flag_polyInit, bool flag_randomPolyTraj)
-1
-2
-3
+
+
+
    接下来，我们就顺着reboundReplan函数来看一下Ego Planner算法的流程
 
    首先是不考虑障碍物的情况下，生成从起点到目标点的光滑轨迹，如果之前已经有轨迹了，则初始轨迹就基于之前的轨迹来生成，这样保证在重规划时不会出现一会儿让无人机往左飞，一会儿让无人机往右飞，在几条轨迹间来回横跳的现象。
@@ -487,53 +496,31 @@ bool EGOPlannerManager::reboundReplan(Eigen::Vector3d start_pt, Eigen::Vector3d 
 
       }
      } while (flag_regenerate);
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
-21
-22
-23
+
    上面生成的轨迹并不是B样条轨迹，接下来需要将其变成B样条轨迹（通过求解最小二乘问题获得B样条的控制带你来进行转换），该部分内容是通过调用parameterizeToBspline函数完成的，该函数的具体程序位于uniform_bspline.cpp文件中，该函数的输入参数中point_set是轨迹上的点，start_end_derivatives是起点和终点的高阶约束
 
 UniformBspline::parameterizeToBspline(ts, point_set, start_end_derivatives, ctrl_pts);
-1
+
   void UniformBspline::parameterizeToBspline(const double &ts, const vector<Eigen::Vector3d> &point_set,
                                              const vector<Eigen::Vector3d> &start_end_derivative,
                                              Eigen::MatrixXd &ctrl_pts)
-1
-2
-3
+
+
+
    转换完成后，我们就得到了后端优化的初值，然后执行轨迹优化，该部分内容是通过调用BsplineOptimizeTrajRebound函数来完成的，该函数的具体程序在bspline_optimizer.cpp中
 
  /*** STEP 2: OPTIMIZE ***/
     bool flag_step_1_success = bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts, ts);
-1
-2
+
+
   bool BsplineOptimizer::BsplineOptimizeTrajRebound(Eigen::MatrixXd &optimal_points, double ts)
-1
+
    优化结束后，开始执行时间重分配，该部分内容通过调用refineTrajAlgo函数来完成，该函数的具体程序位于planner_manager.cpp文件中
 
 flag_step_2_success = refineTrajAlgo(pos, start_end_derivatives, ratio, ts, optimal_control_points);
-1
+
 bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vector3d> &start_end_derivative, double ratio, double &ts, Eigen::MatrixXd &optimal_control_points)
-1
+
    时间重分配流程结束后，就得到了最终的轨迹，将其发布出去
 
    3、重要函数的展开介绍（BsplineOptimizeTrajRebound和refineTrajAlgo）
@@ -552,20 +539,11 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
 
     return flag_success;
   }
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
+
    在rebound_optimize函数中，调用了LBFGS优化器进行优化
 
  int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimizer::costFunctionRebound, NULL, BsplineOptimizer::earlyExit, this, &lbfgs_params);
-1
+
    其核心是目标函数costFunctionRebound如何编写
 
   double BsplineOptimizer::costFunctionRebound(void *func_data, const double *x, double *grad, const int n)
@@ -578,16 +556,7 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
     opt->iter_num_ += 1;
     return cost;
   }
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
+
    目标函数的具体表达式在costFunctionRebound函数调用的combineCostRebound函数中，该函数中又调用了calcSmoothnessCost、calcDistanceCostRebound、calcFeasibilityCost这三个函数，分别对应着目标函数中的平滑项、避障约束项、动力学约束项，其中calcDistanceCostRebound在计算避障约束项之前会先检测是否碰撞了障碍物，若是则会停止优化
 
  void BsplineOptimizer::combineCostRebound(const double *x, double *grad, double &f_combine, const int n)
@@ -612,28 +581,7 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
     Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + new_lambda2_ * g_distance + lambda3_ * g_feasibility;
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
   }
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
-21
-22
+
    我们再来看一下，用于时间重分配的refineTrajAlgo函数
 
    首先要计算出新的合适的时间间隔，该部分内容在reparamBspline函数中完成，然后基于新的时间间隔计算新轨迹的初值，该部分内容主要在UniformBspline函数中完成，然后，再对新的轨迹进行优化，该部分内容在BsplineOptimizeTrajRefine中完成
@@ -658,26 +606,7 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
 
     return success;
   }
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
+
    在BsplineOptimizeTrajRefine函数中，调用了refine_optimize函数来执行具体的优化过程。
 
   bool BsplineOptimizer::BsplineOptimizeTrajRefine(const Eigen::MatrixXd &init_points, const double ts, Eigen::MatrixXd &optimal_points)
@@ -692,24 +621,13 @@ bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vecto
 
     return flag_success;
   }
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
+
    refine_optimize函数中同样是调用了LBFGS求解器来就行优化过程，其核心依然是目标函数costFunctionRefine的给定
 
   bool BsplineOptimizer::refine_optimize()
-1
+
 int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimizer::costFunctionRefine, NULL, NULL, this, &lbfgs_params);
-1
+
    costFunctionRefine函数中调用了combineCostRefine函数来计算目标函数值
 
   double BsplineOptimizer::costFunctionRefine(void *func_data, const double *x, double *grad, const int n)
@@ -722,16 +640,7 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
     opt->iter_num_ += 1;
     return cost;
   }
-1
-2
-3
-4
-5
-6
-7
-8
-9
-10
+
    combineCostRefine函数中又调用了calcSmoothnessCost函数、calcFitnessCost函数、calcFeasibilityCost函数来分别计算平滑项、曲线拟合项、动力学约束项
 
   void BsplineOptimizer::combineCostRefine(const double *x, double *grad, double &f_combine, const int n)
@@ -763,12 +672,17 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
 原文链接：https://blog.csdn.net/qq_44339029/article/details/132641867                   
 原文链接：https://blog.csdn.net/qq_44339029/article/details/132655058
 以上内容基本转载两篇Ego Planner规划算法（上）与（下）——Ego Planner程序框架，讲解代码逻辑清晰，在比赛中我们不需要了解Ego Planner具体代码细节，从原理上入手了解整个规划的过程即可。
+
 在无人机比赛使用Ego Planner规划的时候，需要注意以下参数文件，进行相应的修改。
+
 ![image](https://github.com/user-attachments/assets/323b2eb0-49b6-4bf4-a863-ac76335c83a7)
 
 ![image](https://github.com/user-attachments/assets/15c6b26e-6e4c-4050-9251-b93ccbf3bdde)
+
 此处虚拟天花板高度一般设置为洞穴比赛要求的2-3m，因为在实际飞行过程中无人机高度控制往往出现误差，相当于设置一个合适的限幅值，在仿真中会遇到类似的问题，由于虚拟天花板设置不得当（比如特别小，小于1），而实际飞行高度在仿真器中大于1m，会出现退离异常的情况，无法完成仿真规划。
+
 ![image](https://github.com/user-attachments/assets/0da2b050-c12e-49aa-bcd9-336cbc07287c)
+
 在run_real.xml文件中设置最大规划出的运行速度的参数，在洞穴比赛中，不用实现高机动规划，可以适当设置慢速前进，1-1.5m为max_vel即可，其他两个参数不用动。
 
 

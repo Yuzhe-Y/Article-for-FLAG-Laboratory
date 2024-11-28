@@ -689,12 +689,17 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
 ### 4.1.2 Ego Planner仿真
 
 官方仿真：https://github.com/ZJU-FAST-Lab/EGO-Planner-v2.git
+
 洞穴比赛搭建的仿真：这里我们手动搭建一个小仿真平台，Ego Planner仿真需要与状态及配合，single_offboard_fsm节点作为与轨迹规划通信的对象，可以在rviz中验证规划的有效性，规律以及状态机逻辑的有效性和规律。
+
 我们需要启动以下几个节点
-roscore
-python3 obs.py 
+
+```roscore
+python3 obs.py
+```
 上述代码运行障碍物生成文件，通过人为生成类型为Pointcloud2的障碍物类型，充当避障的障碍物。
 obs.py文件如下
+```
 #!/usr/bin/env python
 
 import rospy
@@ -916,31 +921,26 @@ if __name__ == '__main__':
         obstacle_publisher()
     except rospy.ROSInterruptException:
         pass
-	
+```	
 接着启动剩下的节点：
 
-source devel/setup.bash
-
+```source devel/setup.bash
 roslaunch fsm_ctrl swarm.launch
-
+```
 上述为启动用户指令输入界面，通过socket通信切换指令
-
-source devel/setup.bash
-
+```source devel/setup.bash
 roslaunch fsm_ctrl single2.launch 
-
+```
 上述同时启动状态机节点和mavros
 
-source devel/setup.bash
-
+```source devel/setup.bash
 roslaunch ego_planner happy_fly.launch 
-
+```
 上述启动Ego Planner规划器
 
-source devel/setup.bash
-
+```source devel/setup.bash
 roslaunch so3_quadrotor_simulator simulator_example.launch 
-
+```
 上述启动仿真器rviz
 
 启动节点后我们在rviz中首先订阅PointCloud2的点云类型，这里的点云类型是我们模拟的无人机机载电脑通过网线接收到的来自于Mid——360的点云信息

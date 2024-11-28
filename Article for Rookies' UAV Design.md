@@ -679,7 +679,7 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
 
 ![image](https://github.com/user-attachments/assets/15c6b26e-6e4c-4050-9251-b93ccbf3bdde)
 
-此处虚拟天花板高度一般设置为洞穴比赛要求的2-3m，因为在实际飞行过程中无人机高度控制往往出现误差，相当于设置一个合适的限幅值，在仿真中会遇到类似的问题，由于虚拟天花板设置不得当（比如特别小，小于1），而实际飞行高度在仿真器中大于1m，会出现退离异常的情况，无法完成仿真规划。
+此处虚拟天花板高度一般设置为洞穴比赛要求的2-3m，因为在实际飞行过程中无人机高度控制往往出现误差，相当于设置一个合适的限幅值，在仿真中会遇到类似的问题，由于虚拟天花板设置不得当（比如特别小，小于1），而实际飞行高度在仿真器中大于1m，会出现推离异常的情况，无法完成仿真规划。
 
 ![image](https://github.com/user-attachments/assets/0da2b050-c12e-49aa-bcd9-336cbc07287c)
 

@@ -923,22 +923,23 @@ if __name__ == '__main__':
         pass
 ```	
 接着启动剩下的节点：
-
-```source devel/setup.bash
+```
+source devel/setup.bash
 roslaunch fsm_ctrl swarm.launch
 ```
 上述为启动用户指令输入界面，通过socket通信切换指令
-```source devel/setup.bash
+```
+source devel/setup.bash
 roslaunch fsm_ctrl single2.launch 
 ```
 上述同时启动状态机节点和mavros
-
-```source devel/setup.bash
+```
+source devel/setup.bash
 roslaunch ego_planner happy_fly.launch 
 ```
 上述启动Ego Planner规划器
-
-```source devel/setup.bash
+```
+source devel/setup.bash
 roslaunch so3_quadrotor_simulator simulator_example.launch 
 ```
 上述启动仿真器rviz

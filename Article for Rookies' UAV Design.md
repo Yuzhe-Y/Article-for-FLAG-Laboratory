@@ -1,4 +1,4 @@
-# 从零开始的无人机制作过程
+![e0b00a88d3ec871e78c85ca11d3f9ac](https://github.com/user-attachments/assets/5d2b805e-bc71-4968-b1d9-6251f294117c)# 从零开始的无人机制作过程
 
 [TOC]
 
@@ -825,7 +825,6 @@ def create_tunnel_and_obstacles1():
             obstacle_positions.append((tunnel_start_x + x, tunnel_start_y + y, z))
 
     return np.array(tunnel_points), np.array(obstacle_positions)
-接着我们启动剩下节点
 
 
 
@@ -916,18 +915,26 @@ if __name__ == '__main__':
         obstacle_publisher()
     except rospy.ROSInterruptException:
         pass
+	
 接着启动剩下的节点：
 source devel/setup.bash
 roslaunch fsm_ctrl swarm.launch
+
 上述为启动用户指令输入界面，通过socket通信切换指令
+
 source devel/setup.bash
 roslaunch fsm_ctrl single2.launch 
+
 上述同时启动状态机节点和mavros
+
 source devel/setup.bash
 roslaunch ego_planner happy_fly.launch 
+
 上述启动Ego Planner规划器
+
 source devel/setup.bash
 roslaunch so3_quadrotor_simulator simulator_example.launch 
+
 上述启动仿真器rviz
 
 启动节点后我们在rviz中首先订阅PointCloud2的点云类型，这里的点云类型是我们模拟的无人机机载电脑通过网线接收到的来自于Mid——360的点云信息
@@ -936,7 +943,44 @@ roslaunch so3_quadrotor_simulator simulator_example.launch
 
 如上述所示的流程添加点云可视化，轨迹可视化，此时我们发现无人机的位置在0，0，1，这里我们也可以调节simulator_example.launch的参数来实现初始rviz中位置的变化
 
+![image](https://github.com/user-attachments/assets/5369e91c-5191-4b31-b3cb-21357fb694e6)
 
+具体实现流程如下效果所示
+
+https://github.com/user-attachments/assets/55cd8bfb-0d76-46a6-b050-dcfe4a1d222c
+
+在仿真过程中，我们直接使用自带的so3仿真器，无人机可以视为质点，不具备大小体积，此时调节advanced参数中的障碍物膨胀系数也没有作用，在仿真中该参数不被读入。因此我们可能会遇到几种特殊的情况
+
+![0466ef17dea67fedfd7375b2588060e](https://github.com/user-attachments/assets/184cf3aa-48dd-4570-83d2-6d6bb791fcfb)
+
+暂时没有特别好的解决办法，也会出现偶然报错卡着不动，但是Ego Planner的replan重规划是没有问题的，逻辑是正确的，确保无人机处在障碍物外部，将无人机从障碍物内部退离开，规划的时候以垂直的方向推离开。出现卡顿卡住不动可能因为so3仿真中的无人机没有具体完备的动力学模型，或者电脑无法同时处理那么多replan的新点，问题不大。
+
+关于规划只给一个起点一个终点的情况，这个跟具体地图的尺度有关系，如果地图尺度很大，那么无人机会出现飞行问题，不一样按照最靠前的方向飞行，可能会出现如下图所示的情况：
+
+![23ece35e267911d4f42069886b17ceb](https://github.com/user-attachments/assets/34b42b0a-4913-44bb-9f5b-d200caf46195)
+
+但至少能够保证，飞机能够避障，也在尽力尝试飞向目标点，最终到达目标点。
+
+
+![e0b00a88d3ec871e78c85ca11d3f9ac](https://github.com/user-attachments/assets/f509432a-8745-4321-a49f-b3b7ec1597f7)
+
+因此，在实际飞行比赛中，我们尽可能的多设置途径点，也就是在拐弯的地方设置拐点，增加拐点的数量，确保飞机以正方向向前探索。
+
+总体效果图如下，此处设置了一个回到原来初始点坐标的规划。
+
+![6569a13c6dbccd467c290aea6c06c03](https://github.com/user-attachments/assets/5c21511d-5786-496e-ab60-d8b632b3c1ac)
+
+值得一提的是，我们的探索方案是需要知道起点和终点的具体点坐标的，我们的逻辑是基于起点和目标终点的路径规划，而不是一个彻头彻尾的未知区域探索方案，先验的坐标信息很关键，如果丧失了先验坐标信息，我们将无法完成自主陌生环境探索。因此后续未来可以尝试将无人机的规划方式向无人车的规划方式靠拢，无人车是全局RRT，局部teb，可以实现在定位飘的情况下仍然按照相对坐标，朝着局部前沿点运行，但是飞机依赖于nmpc控制（或者原始的PX4自带的控制），此控制方法依赖无人机的闭环反馈位置姿态信息，如果没有准确的坐标反馈闭环信息，无人机的控制会出现巨大问题，坐标飘了几米甚至几十厘米就可能引起炸机，为此，有两个可行的方向：
+
+1.优化适合人工长廊的LIO定位方法，我们用的是RA-LIO，也尝试过FAST——LIO2（z轴飘非常严重，完全实现不了闭环控制），但是效果均不是很好。
+
+可以参考香港大学https://github.com/hku-mars/FAST_LIO
+
+2.重新改变规划逻辑,以探索未知区域为核心，但定位漂移仍然无法实现无人机的控制。
+
+可以参考香港科技大学周老师https://github.com/HKUST-Aerial-Robotics/FUEL
+
+所以关键问题在于：如何在洞穴中控制无人机飞行！！！关键在于精准的定位信息！！！因此也回归问题1
 
 ### 4.2 运动控制及状态机部分讲解
 

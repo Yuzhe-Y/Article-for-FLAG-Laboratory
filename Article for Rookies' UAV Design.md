@@ -443,8 +443,8 @@ Ego Planner最大的优点是不需要ESDF地图，在轨迹优化时不需要�
  2、Ego Planner程序框架/流程
 
    我们从主函数所在的ego_planner_node.cpp文件开始，该文件中初始化Ego Planner的节点以后，通过rebo_replan.init函数,来调用Ego Planner算法相关的程序，rebo_replan.init函数的具体程序在ego_replan_fsm.cpp文件中
-
-```rebo_replan.init(nh);
+```
+rebo_replan.init(nh);
 
 void EGOReplanFSM::init(ros::NodeHandle &nh)
 ```
@@ -693,8 +693,8 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
 洞穴比赛搭建的仿真：这里我们手动搭建一个小仿真平台，Ego Planner仿真需要与状态及配合，single_offboard_fsm节点作为与轨迹规划通信的对象，可以在rviz中验证规划的有效性，规律以及状态机逻辑的有效性和规律。
 
 我们需要启动以下几个节点
-
-```roscore
+```
+roscore
 python3 obs.py
 ```
 上述代码运行障碍物生成文件，通过人为生成类型为Pointcloud2的障碍物类型，充当避障的障碍物。
@@ -987,7 +987,7 @@ https://github.com/user-attachments/assets/55cd8bfb-0d76-46a6-b050-dcfe4a1d222c
 
 可以参考香港科技大学周老师https://github.com/HKUST-Aerial-Robotics/FUEL
 
-所以关键问题在于：如何在洞穴中控制无人机飞行！！！关键在于精准的定位信息！！！因此也回归问题1
+所以关键问题在于：如何在洞穴中控制无人机飞行！！！关键在于精准的定位信息！！！因此也回归问题1。
 
 ### 4.2 运动控制及状态机部分讲解
 

@@ -1,7 +1,4 @@
-![e0b00a88d3ec871e78c85ca11d3f9ac](https://github.com/user-attachments/assets/5d2b805e-bc71-4968-b1d9-6251f294117c)# 从零开始的无人机制作过程
-
-[TOC]
-
+# 从零开始的无人机制作过程
 
 
 ## 0. 写在开头
@@ -510,6 +507,7 @@ UniformBspline::parameterizeToBspline(ts, point_set, start_end_derivatives, ctrl
    转换完成后，我们就得到了后端优化的初值，然后执行轨迹优化，该部分内容是通过调用BsplineOptimizeTrajRebound函数来完成的，该函数的具体程序在bspline_optimizer.cpp中
 
  /*** STEP 2: OPTIMIZE ***/
+ 
     bool flag_step_1_success = bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts, ts);
 
 
@@ -668,9 +666,11 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
     Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + lambda4_ * g_fitness + lambda3_ * g_feasibility;
     memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
 }
+
 版权声明：本文为博主原创文章，遵循 CC 4.0 BY-SA 版权协议，转载请附上原文出处链接和本声明。                     
 原文链接：https://blog.csdn.net/qq_44339029/article/details/132641867                   
 原文链接：https://blog.csdn.net/qq_44339029/article/details/132655058
+
 以上内容基本转载两篇Ego Planner规划算法（上）与（下）——Ego Planner程序框架，讲解代码逻辑清晰，在比赛中我们不需要了解Ego Planner具体代码细节，从原理上入手了解整个规划的过程即可。
 
 在无人机比赛使用Ego Planner规划的时候，需要注意以下参数文件，进行相应的修改。
@@ -685,6 +685,7 @@ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimiz
 
 在run_real.xml文件中设置最大规划出的运行速度的参数，在洞穴比赛中，不用实现高机动规划，可以适当设置慢速前进，进行充分的探索
 1-1.5m为max_vel即可，其他两个参数不用动。
+
 ### 4.1.2 Ego Planner仿真
 
 官方仿真：https://github.com/ZJU-FAST-Lab/EGO-Planner-v2.git
@@ -917,22 +918,27 @@ if __name__ == '__main__':
         pass
 	
 接着启动剩下的节点：
+
 source devel/setup.bash
+
 roslaunch fsm_ctrl swarm.launch
 
 上述为启动用户指令输入界面，通过socket通信切换指令
 
 source devel/setup.bash
+
 roslaunch fsm_ctrl single2.launch 
 
 上述同时启动状态机节点和mavros
 
 source devel/setup.bash
+
 roslaunch ego_planner happy_fly.launch 
 
 上述启动Ego Planner规划器
 
 source devel/setup.bash
+
 roslaunch so3_quadrotor_simulator simulator_example.launch 
 
 上述启动仿真器rviz
@@ -943,7 +949,7 @@ roslaunch so3_quadrotor_simulator simulator_example.launch
 
 如上述所示的流程添加点云可视化，轨迹可视化，此时我们发现无人机的位置在0，0，1，这里我们也可以调节simulator_example.launch的参数来实现初始rviz中位置的变化
 
-![image](https://github.com/user-attachments/assets/5369e91c-5191-4b31-b3cb-21357fb694e6)
+![1](https://github.com/user-attachments/assets/213e618f-b688-4184-8850-41daac91abde)
 
 具体实现流程如下效果所示
 

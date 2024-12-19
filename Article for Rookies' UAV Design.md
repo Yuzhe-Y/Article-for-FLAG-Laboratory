@@ -1,8 +1,5 @@
 # 从零开始的无人机制作过程
 
-[TOC]
-
-
 
 ## 0. 写在开头
 
@@ -391,9 +388,606 @@ make px4_fmu-v6c_default upload #烧录固件
 
 本部分为本次比赛采用代码的对应原理讲解部分。本次比赛代码总共分为路径规划，运动控制与状态机，SLAM（同步定位与建图），视觉识别四部分，分别由：左远航（路径规划），杨宇哲（运动控制与状态机，SLAM），杨正南（视觉识别）三位同学负责。有任何有关代码上的问题请与这三位学长进行联系。此外，代码的构建还离不开实验室各位师兄师姐的贡献，是他们为我们提供了本次比赛的代码基础平台，大大减少了我们的工作量。如果存在我们无法解释的问题，还可以联系下列学长进行解答：路径规划：吴德龙学长，运动控制与状态机：华骏扬学长，施扬熹学长，SLAM：葛奕谷学长、杨淏宇学长，视觉识别：李昀皞同学。
 
-### 4.1 路径规划部分讲解
+### 4.1.1 Ego Planner原理
 
-等待补充。
+Ego Planner最大的优点是不需要ESDF地图，在轨迹优化时不需要使用ESDF去构建避障的cost项，ESDF是一种栅格距离场，每个格子都存放着距离该格子最近的障碍物的距离，从下图右下角的柱状图可以看出EWOK、Fast-Planner算法都需要较长的时间去构建这个ESDF地图，如果不构建ESDF可以使得规划时间更短，如Ego Planner算法
+
+![image](https://github.com/user-attachments/assets/fb768165-e0f4-41c3-9393-58bfe4b6c37e)
+
+除了构建ESDF地图需要耗费较长时间之外，在建图的时候只能看见障碍物的表面，如下图中的右图所示，看不见障碍物的后面/内部，在优化的过程中会使用ESDF去产生一个排斥轨迹远离障碍物，在下图所示的例子中，上面的障碍物将轨迹往下推，下面的障碍物将轨迹往上推，会出现轨迹卡在障碍物中的情况。所以ESDF存在构建时间长、对避障cost构建的缺点等问题
+![image](https://github.com/user-attachments/assets/4c957b37-2f60-4bec-b0d7-6b6c26066cec)
+
+在不使用ESDF地图的前提下，Ego Planner是如何实现将轨迹推到无障碍物区域呢？其核心思想是，轨迹在优化的过程中，如果轨迹与障碍物发生碰撞，我们就基于这个碰撞对轨迹产生一个反方向的力来把轨迹推出来，远离刚刚碰到的障碍物
+
+![d698c7e1b3dfa94386f56d238f7e3592](https://github.com/user-attachments/assets/1eb72b01-82ef-4b74-947b-22a34b8ababe)
+
+前端：Fast Planner的前端使用的是Hybrid A * 算法，而Ego Planner并不需要一个与障碍物不发生碰撞的初值轨迹，所以它的前端不需要Hybrid A * 这种比较复杂的算法，它只需要一条不考虑障碍物，满足给定起点和目标点状态的轨迹即可，然后在后端优化中再把轨迹优化成无碰撞的
+
+   后端轨迹优化：相比于Fast Planner，Ego Planner在后端优化中在每次迭代中对优化后的轨迹需要增加检查轨迹是否发送碰撞的流程，如下图的check collision所示，如果没有发生碰撞，则继续迭代优化轨迹，如果发生了碰撞，就需要针对这个碰撞，加一个新的推力的cost，此时优化问题发生了变化，不能再针对原问题继续优化下去，需要针对新问题重新开始优化。即基于当前优化的结果再加上新的cost，再去进行优化。
+
+   后端时间重分配：由于Ego Planner的后端优化也是基于优化的控制点，采用均匀B样条来生成轨迹，所以也需要跟Fast Planner一样，进行时间重分配，所不同的是Ego Planner的时间重分配与Fast Planner的时间重分配所使用的方法思路是完全不一样的。
+接下来，我们来看一下轨迹与障碍物发生碰撞后，与碰撞反方向的推力是如何产生的
+
+   首先，我们要检查轨迹上的所有控制点，找出所有在障碍物里面的控制点，以及与该位于障碍物内部的控制点邻近的控制点，如下图中的左图所示，然后我们需要以这两个不在障碍物内部的邻近的控制点为起点和终点使用传统的A * 算法 搜索得到两点之间的一条可行路径，如下图中中间图的蓝色路径所示，然后计算在障碍物内部的点Q的速度方向，然后以这个速度方向为法向量，找到一个垂直于这个速度方向且过点Q的平面，如下图中右图的绿色平面所示，然后找这个平面与障碍物表面的交点，如下图中右图的p点所示，然后取向量v为由Q点指向p点方向上的单位向量，即
+   
+   ![image](https://github.com/user-attachments/assets/4843a6ab-7d32-4b63-9339-eba9b41bf99d)
+
+ 这样就可以得到一个针对Q点的{p，v}对
+ 
+![image](https://github.com/user-attachments/assets/f276c240-f964-4905-8354-83835580bb39)
+
+![image](https://github.com/user-attachments/assets/07d68a6c-07ec-4f68-9036-22c7c6b6493f)
+
+ Fast-Planner将轨迹参数化为非均匀B样条，检查井将超过速度、加速度限制的控制点所影响的时间区间采用迭代的方式进行扩大。·如果在轨迹初状态的周围调整时间，会导致轨迹的初状态的高阶量发生变化，从而导致轨迹在飞行的时候会有一些抖动。在Ego Planner中，会根据安全轨迹重新生成合理时间分配的均匀B样条轨迹。它的目标是使得时间分配更合理的B样条在位置上更加贴合之前优化出来的轨迹，并尽可能的满足动力学要求和平滑要求。
+ 
+ ![image](https://github.com/user-attachments/assets/d70a1530-ea28-4601-8475-c3e8ed859f58)
+ 
+ 最后，再来总结一下Ego Planner框架的流程
+
+   首先，我们可以通过非常简单天真的方法（不考虑障碍物），得到一条比较光滑的从起点到目标点的B样条曲线的初值，然后使用均匀的B样条去做轨迹优化，轨迹优化过程中，如果发现控制点碰到障碍物，就将该碰撞产生的新cost项，加入到优化的目标函数中，重新进行轨迹优化，直至收敛得到无碰撞的满足需求的解，然后再进行时间的重分配，依然使用均匀B样条，先计算出新的时间间隔△t，然后用最小二乘计算出一个新轨迹控制点初值，然后进行优化，使得新轨迹在新的时间与原轨迹在对应旧时间的位置上尽可能贴合，并满足光滑，动力学约束等，这个过程更像是一个曲线拟合问题，最终得到我们需要的轨迹。
+   1、各功能包作用
+
+   Ego Planner的开源代码中，uav_simulator文件夹中存放的是一些仿真相关的程序，planner文件夹中存放的是Ego Planner算法相关的程序。
+
+   在planner文件夹中包含多个功能包，各功能包的作用如下：
+
+   （1）bspline_opt ：均匀B样条，用于轨迹优化
+
+   （2）path_searching：dynamic A * 算法，但在Ego Planner的规划过程中并没有用到
+
+   （3）plan_env：用于地图生成
+
+   （4）plan_manage：主文件夹，主节点所在文件夹
+
+   （5）traj_utils：可视化及多项式轨迹类的相关内容
+ 2、Ego Planner程序框架/流程
+
+   我们从主函数所在的ego_planner_node.cpp文件开始，该文件中初始化Ego Planner的节点以后，通过rebo_replan.init函数,来调用Ego Planner算法相关的程序，rebo_replan.init函数的具体程序在ego_replan_fsm.cpp文件中
+```
+rebo_replan.init(nh);
+
+void EGOReplanFSM::init(ros::NodeHandle &nh)
+```
+   ego_replan_fsm.cpp文件中execFSMCallback函数是状态基，用于处理在机器人运行过程中遇到各种情况下，是选择急停、还是重新规划、还是继续执行等。
+
+   我们前面介绍的Ego Planner算法的具体程序都在ego_replan_fsm.cpp 文件中 callReboundReplan函数中调用的reboundReplan函数中。
+```
+ bool EGOReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
+
+ bool plan_success =
+        planner_manager_->reboundReplan(start_pt_, start_vel_, start_acc_, local_target_pt_, local_target_vel_, (have_new_target_ || flag_use_poly_init), flag_randomPolyTraj);
+
+
+   reboundReplan函数的具体程序在planner_manager.cpp文件中
+
+bool EGOPlannerManager::reboundReplan(Eigen::Vector3d start_pt, Eigen::Vector3d start_vel,
+                                        Eigen::Vector3d start_acc, Eigen::Vector3d local_target_pt,
+                                        Eigen::Vector3d local_target_vel, bool flag_polyInit, bool flag_randomPolyTraj)
+
+```
+
+   接下来，我们就顺着reboundReplan函数来看一下Ego Planner算法的流程
+
+   首先是不考虑障碍物的情况下，生成从起点到目标点的光滑轨迹，如果之前已经有轨迹了，则初始轨迹就基于之前的轨迹来生成，这样保证在重规划时不会出现一会儿让无人机往左飞，一会儿让无人机往右飞，在几条轨迹间来回横跳的现象。
+```
+  double ts = (start_pt - local_target_pt).norm() > 0.1 ? pp_.ctrl_pt_dist / pp_.max_vel_ * 1.2 : pp_.ctrl_pt_dist / pp_.max_vel_ * 5; // pp_.ctrl_pt_dist / pp_.max_vel_ is too tense, and will surely exceed the acc/vel limits
+    vector<Eigen::Vector3d> point_set, start_end_derivatives;
+    static bool flag_first_call = true, flag_force_polynomial = false;
+    bool flag_regenerate = false;
+    do
+    {
+      point_set.clear();
+      start_end_derivatives.clear();
+      flag_regenerate = false;
+
+      if (flag_first_call || flag_polyInit || flag_force_polynomial /*|| ( start_pt - local_target_pt ).norm() < 1.0*/) // Initial path generated from a min-snap traj by order.
+      {
+
+		 ...略...
+
+       }
+       else // Initial path generated from previous trajectory.
+      {
+      
+		 ...略...
+
+      }
+     } while (flag_regenerate);
+```
+   上面生成的轨迹并不是B样条轨迹，接下来需要将其变成B样条轨迹（通过求解最小二乘问题获得B样条的控制带你来进行转换），该部分内容是通过调用parameterizeToBspline函数完成的，该函数的具体程序位于uniform_bspline.cpp文件中，该函数的输入参数中point_set是轨迹上的点，start_end_derivatives是起点和终点的高阶约束
+```
+UniformBspline::parameterizeToBspline(ts, point_set, start_end_derivatives, ctrl_pts);
+
+  void UniformBspline::parameterizeToBspline(const double &ts, const vector<Eigen::Vector3d> &point_set,
+                                             const vector<Eigen::Vector3d> &start_end_derivative,
+                                             Eigen::MatrixXd &ctrl_pts)
+
+```
+
+   转换完成后，我们就得到了后端优化的初值，然后执行轨迹优化，该部分内容是通过调用BsplineOptimizeTrajRebound函数来完成的，该函数的具体程序在bspline_optimizer.cpp中
+```
+ /*** STEP 2: OPTIMIZE ***/
+ 
+    bool flag_step_1_success = bspline_optimizer_rebound_->BsplineOptimizeTrajRebound(ctrl_pts, ts);
+
+
+  bool BsplineOptimizer::BsplineOptimizeTrajRebound(Eigen::MatrixXd &optimal_points, double ts)
+```
+   优化结束后，开始执行时间重分配，该部分内容通过调用refineTrajAlgo函数来完成，该函数的具体程序位于planner_manager.cpp文件中
+```
+flag_step_2_success = refineTrajAlgo(pos, start_end_derivatives, ratio, ts, optimal_control_points);
+
+bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vector3d> &start_end_derivative, double ratio, double &ts, Eigen::MatrixXd &optimal_control_points)
+```
+   时间重分配流程结束后，就得到了最终的轨迹，将其发布出去
+
+   3、重要函数的展开介绍（BsplineOptimizeTrajRebound和refineTrajAlgo）
+
+   我们先来看，完成轨迹优化的BsplineOptimizeTrajRebound函数
+
+   该函数的具体程序在bspline_optimizer.cpp中，首先将时间间隔ts传给B样条曲线，然后调用rebound_optimize函数执行轨迹优化
+```
+  bool BsplineOptimizer::BsplineOptimizeTrajRebound(Eigen::MatrixXd &optimal_points, double ts)
+  {
+    setBsplineInterval(ts);
+
+    bool flag_success = rebound_optimize();
+
+    optimal_points = cps_.points;
+
+    return flag_success;
+  }
+```
+   在rebound_optimize函数中，调用了LBFGS优化器进行优化
+```
+ int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimizer::costFunctionRebound, NULL, BsplineOptimizer::earlyExit, this, &lbfgs_params);
+```
+   其核心是目标函数costFunctionRebound如何编写
+```
+  double BsplineOptimizer::costFunctionRebound(void *func_data, const double *x, double *grad, const int n)
+  {
+    BsplineOptimizer *opt = reinterpret_cast<BsplineOptimizer *>(func_data);
+
+    double cost;
+    opt->combineCostRebound(x, grad, cost, n);
+
+    opt->iter_num_ += 1;
+    return cost;
+  }
+```
+   目标函数的具体表达式在costFunctionRebound函数调用的combineCostRebound函数中，该函数中又调用了calcSmoothnessCost、calcDistanceCostRebound、calcFeasibilityCost这三个函数，分别对应着目标函数中的平滑项、避障约束项、动力学约束项，其中calcDistanceCostRebound在计算避障约束项之前会先检测是否碰撞了障碍物，若是则会停止优化
+```
+ void BsplineOptimizer::combineCostRebound(const double *x, double *grad, double &f_combine, const int n)
+  {
+
+    memcpy(cps_.points.data() + 3 * order_, x, n * sizeof(x[0]));
+
+    /* ---------- evaluate cost and gradient ---------- */
+    double f_smoothness, f_distance, f_feasibility;
+
+    Eigen::MatrixXd g_smoothness = Eigen::MatrixXd::Zero(3, cps_.size);
+    Eigen::MatrixXd g_distance = Eigen::MatrixXd::Zero(3, cps_.size);
+    Eigen::MatrixXd g_feasibility = Eigen::MatrixXd::Zero(3, cps_.size);
+
+    calcSmoothnessCost(cps_.points, f_smoothness, g_smoothness);
+    calcDistanceCostRebound(cps_.points, f_distance, g_distance, iter_num_, f_smoothness);
+    calcFeasibilityCost(cps_.points, f_feasibility, g_feasibility);
+
+    f_combine = lambda1_ * f_smoothness + new_lambda2_ * f_distance + lambda3_ * f_feasibility;
+    //printf("origin %f %f %f %f\n", f_smoothness, f_distance, f_feasibility, f_combine);
+
+    Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + new_lambda2_ * g_distance + lambda3_ * g_feasibility;
+    memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
+  }
+```
+   我们再来看一下，用于时间重分配的refineTrajAlgo函数
+
+   首先要计算出新的合适的时间间隔，该部分内容在reparamBspline函数中完成，然后基于新的时间间隔计算新轨迹的初值，该部分内容主要在UniformBspline函数中完成，然后，再对新的轨迹进行优化，该部分内容在BsplineOptimizeTrajRefine中完成
+```
+bool EGOPlannerManager::refineTrajAlgo(UniformBspline &traj, vector<Eigen::Vector3d> &start_end_derivative, double ratio, double &ts, Eigen::MatrixXd &optimal_control_points)
+  {
+    double t_inc;
+
+    Eigen::MatrixXd ctrl_pts; // = traj.getControlPoint()
+
+    // std::cout << "ratio: " << ratio << std::endl;
+    reparamBspline(traj, start_end_derivative, ratio, ctrl_pts, ts, t_inc);
+
+    traj = UniformBspline(ctrl_pts, 3, ts);
+
+    double t_step = traj.getTimeSum() / (ctrl_pts.cols() - 3);
+    bspline_optimizer_rebound_->ref_pts_.clear();
+    for (double t = 0; t < traj.getTimeSum() + 1e-4; t += t_step)
+      bspline_optimizer_rebound_->ref_pts_.push_back(traj.evaluateDeBoorT(t));
+
+    bool success = bspline_optimizer_rebound_->BsplineOptimizeTrajRefine(ctrl_pts, ts, optimal_control_points);
+
+    return success;
+  }
+```
+   在BsplineOptimizeTrajRefine函数中，调用了refine_optimize函数来执行具体的优化过程。
+```
+  bool BsplineOptimizer::BsplineOptimizeTrajRefine(const Eigen::MatrixXd &init_points, const double ts, Eigen::MatrixXd &optimal_points)
+  {
+
+    setControlPoints(init_points);
+    setBsplineInterval(ts);
+
+    bool flag_success = refine_optimize();
+
+    optimal_points = cps_.points;
+
+    return flag_success;
+  }
+```
+   refine_optimize函数中同样是调用了LBFGS求解器来就行优化过程，其核心依然是目标函数costFunctionRefine的给定
+
+```  bool BsplineOptimizer::refine_optimize()
+
+int result = lbfgs::lbfgs_optimize(variable_num_, q, &final_cost, BsplineOptimizer::costFunctionRefine, NULL, NULL, this, &lbfgs_params);
+
+   costFunctionRefine函数中调用了combineCostRefine函数来计算目标函数值
+
+  double BsplineOptimizer::costFunctionRefine(void *func_data, const double *x, double *grad, const int n)
+  {
+    BsplineOptimizer *opt = reinterpret_cast<BsplineOptimizer *>(func_data);
+
+    double cost;
+    opt->combineCostRefine(x, grad, cost, n);
+
+    opt->iter_num_ += 1;
+    return cost;
+  }
+```
+   combineCostRefine函数中又调用了calcSmoothnessCost函数、calcFitnessCost函数、calcFeasibilityCost函数来分别计算平滑项、曲线拟合项、动力学约束项
+
+```  void BsplineOptimizer::combineCostRefine(const double *x, double *grad, double &f_combine, const int n)
+  {
+
+    memcpy(cps_.points.data() + 3 * order_, x, n * sizeof(x[0]));
+
+    /* ---------- evaluate cost and gradient ---------- */
+    double f_smoothness, f_fitness, f_feasibility;
+
+    Eigen::MatrixXd g_smoothness = Eigen::MatrixXd::Zero(3, cps_.points.cols());
+    Eigen::MatrixXd g_fitness = Eigen::MatrixXd::Zero(3, cps_.points.cols());
+    Eigen::MatrixXd g_feasibility = Eigen::MatrixXd::Zero(3, cps_.points.cols());
+
+    //time_satrt = ros::Time::now();
+
+    calcSmoothnessCost(cps_.points, f_smoothness, g_smoothness);
+    calcFitnessCost(cps_.points, f_fitness, g_fitness);
+    calcFeasibilityCost(cps_.points, f_feasibility, g_feasibility);
+
+    /* ---------- convert to solver format...---------- */
+    f_combine = lambda1_ * f_smoothness + lambda4_ * f_fitness + lambda3_ * f_feasibility;
+    // printf("origin %f %f %f %f\n", f_smoothness, f_fitness, f_feasibility, f_combine);
+
+    Eigen::MatrixXd grad_3D = lambda1_ * g_smoothness + lambda4_ * g_fitness + lambda3_ * g_feasibility;
+    memcpy(grad, grad_3D.data() + 3 * order_, n * sizeof(grad[0]));
+}
+```
+版权声明：本文为博主原创文章，遵循 CC 4.0 BY-SA 版权协议，转载请附上原文出处链接和本声明。                     
+原文链接：https://blog.csdn.net/qq_44339029/article/details/132641867                   
+原文链接：https://blog.csdn.net/qq_44339029/article/details/132655058
+
+以上内容基本转载两篇Ego Planner规划算法（上）与（下）——Ego Planner程序框架，讲解代码逻辑清晰，在比赛中我们不需要了解Ego Planner具体代码细节，从原理上入手了解整个规划的过程即可。
+
+在无人机比赛使用Ego Planner规划的时候，需要注意以下参数文件，进行相应的修改。
+
+![image](https://github.com/user-attachments/assets/323b2eb0-49b6-4bf4-a863-ac76335c83a7)
+
+![image](https://github.com/user-attachments/assets/15c6b26e-6e4c-4050-9251-b93ccbf3bdde)
+
+此处虚拟天花板高度一般设置为洞穴比赛要求的2-3m，因为在实际飞行过程中无人机高度控制往往出现误差，相当于设置一个合适的限幅值，在仿真中会遇到类似的问题，由于虚拟天花板设置不得当（比如特别小，小于1），而实际飞行高度在仿真器中大于1m，会出现推离异常的情况，无法完成仿真规划。
+
+![image](https://github.com/user-attachments/assets/0da2b050-c12e-49aa-bcd9-336cbc07287c)
+
+在run_real.xml文件中设置最大规划出的运行速度的参数，在洞穴比赛中，不用实现高机动规划，可以适当设置慢速前进，进行充分的探索
+1-1.5m为max_vel即可，其他两个参数不用动。
+
+### 4.1.2 Ego Planner仿真
+
+官方仿真：https://github.com/ZJU-FAST-Lab/EGO-Planner-v2.git
+
+洞穴比赛搭建的仿真：这里我们手动搭建一个小仿真平台，Ego Planner仿真需要与状态及配合，single_offboard_fsm节点作为与轨迹规划通信的对象，可以在rviz中验证规划的有效性，规律以及状态机逻辑的有效性和规律。
+
+我们需要启动以下几个节点
+```
+roscore
+python3 obs.py
+```
+上述代码运行障碍物生成文件，通过人为生成类型为Pointcloud2的障碍物类型，充当避障的障碍物。
+obs.py文件如下
+```
+#!/usr/bin/env python
+
+import rospy
+import std_msgs.msg
+import sensor_msgs.msg
+import numpy as np
+def create_tunnel_and_obstacles():
+    # 隧道的参数
+    tunnel_length = 100.0  # 隧道长度
+    tunnel_width = 10.0    # 隧道宽度
+    tunnel_height = 5.0    # 隧道高度
+
+    # 隧道表面点的计算：上下表面每5米一个点，左右墙面是连续的
+    tunnel_points = []
+    
+    # 生成隧道的上、下表面和左右边界
+    for i in range(0, int(tunnel_length) + 1, 5):  # 每5米一个点
+        # 下边界
+        tunnel_points.append((i, -tunnel_width / 2, 0))  # 左下角
+        tunnel_points.append((i, tunnel_width / 2, 0))   # 右下角
+
+        # 上边界
+        tunnel_points.append((i, -tunnel_width / 2, tunnel_height))  # 左上角
+        tunnel_points.append((i, tunnel_width / 2, tunnel_height))   # 右上角
+
+    # 生成连续的左右侧墙面（在x轴方向密集）
+    for i in np.linspace(0, tunnel_length+10, 1000):  # 沿x轴方向更密集生成点
+        # 左侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):  # 高度方向均匀分布点
+            tunnel_points.append((i, -tunnel_width / 2, h))  # 左墙
+    for i in np.linspace(0, tunnel_length, 1000):
+        # 右侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):
+            tunnel_points.append((i, tunnel_width / 2, h))   # 右墙
+
+    # 固定障碍物位置（位于隧道中间）
+    obstacle_positions = []
+    base_obstacles = [
+        (5.0, 1.0),   # 障碍物1
+        (10.0, -2.0), # 障碍物2
+        (15.0, 0.0),  # 障碍物3
+        (20.0, 2.0),  # 障碍物4
+        (25.0, -1.5), # 障碍物5
+        (30.0, 1.5),  # 障碍物6
+        (35.0, -2.5), # 障碍物7
+        (40.0, 0.5),  # 障碍物8
+        (45.0, -1.0), # 障碍物9
+        (50.0, 2.0),  # 障碍物10
+        (55.0, -0.5), # 障碍物11
+        (60.0, 1.0),  # 障碍物12
+        (65.0, -1.2), # 障碍物13
+        (70.0, 2.5),  # 障碍物14
+        (75.0, 0.0),  # 障碍物15
+        (80.0, -2.0), # 障碍物16
+        (85.0, 1.5),  # 障碍物17
+        (90.0, -1.0), # 障碍物18
+        (95.0, 0.0),  # 障碍物19
+        (100.0, -1.5),# 障碍物20
+    ]
+    
+    # 为每个障碍物生成从 z=0 到 z=5 的多个点
+    for x, y in base_obstacles:
+        for z in np.linspace(0, 5.0, 20):  # 生成20个等间隔高度的点
+            obstacle_positions.append((x, y, z))
+
+    return np.array(tunnel_points), np.array(obstacle_positions)
+
+def create_tunnel_and_obstacles1():
+    # 隧道的参数
+    tunnel_length = 100.0  # 隧道长度
+    tunnel_width = 10.0    # 隧道宽度
+    tunnel_height = 5.0    # 隧道高度
+
+    # 隧道起始偏移量
+    tunnel_start_x = 105.0
+    tunnel_start_y = 5.0
+
+    # 隧道表面点的计算：左右表面每5米一个点，上下墙面是连续的
+    tunnel_points = []
+    
+    # 生成隧道的左、右表面和上下边界
+    for i in range(0, int(tunnel_length) + 1, 5):  # 每5米一个点
+        # 左边界
+        tunnel_points.append((tunnel_start_x - tunnel_width / 2, tunnel_start_y + i, 0))  # 左下角
+        tunnel_points.append((tunnel_start_x + tunnel_width / 2, tunnel_start_y + i, 0))  # 右下角
+
+        # 右边界
+        tunnel_points.append((tunnel_start_x - tunnel_width / 2, tunnel_start_y + i, tunnel_height))  # 左上角
+        tunnel_points.append((tunnel_start_x + tunnel_width / 2, tunnel_start_y + i, tunnel_height))  # 右上角
+
+    # 生成连续的上下侧墙面（在y轴方向密集） 
+    for i in np.linspace(0, tunnel_length, 1000):  # 沿y轴方向更密集生成点
+        # 下侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):  # 高度方向均匀分布点
+            tunnel_points.append((tunnel_start_x - tunnel_width / 2, tunnel_start_y + i, h))  # 左墙
+    for i in np.linspace(-10, tunnel_length, 1000):  # 沿y轴方向更密集生成点
+        # 上侧墙：从地面到顶部
+        for h in np.linspace(0, tunnel_height, 10):
+            tunnel_points.append((tunnel_start_x + tunnel_width / 2, tunnel_start_y + i, h))   # 右墙
+
+    # 固定障碍物位置（位于隧道中间）
+    obstacle_positions = []
+    base_obstacles = [
+        (1.0, 5.0),   # 障碍物1
+        (-2.0, 10.0), # 障碍物2
+        (0.0, 15.0),  # 障碍物3
+        (2.0, 20.0),  # 障碍物4
+        (-1.5, 25.0), # 障碍物5
+        (1.5, 30.0),  # 障碍物6
+        (-2.5, 35.0), # 障碍物7
+        (0.5, 40.0),  # 障碍物8
+        (-1.0, 45.0), # 障碍物9
+        (2.0, 50.0),  # 障碍物10
+        (-0.5, 55.0), # 障碍物11
+        (1.0, 60.0),  # 障碍物12
+        (-1.2, 65.0), # 障碍物13
+        (2.5, 70.0),  # 障碍物14
+        (0.0, 75.0),  # 障碍物15
+        (-2.0, 80.0), # 障碍物16
+        (1.5, 85.0),  # 障碍物17
+        (-1.0, 90.0), # 障碍物18
+        (0.0, 95.0),  # 障碍物19
+        (-1.5, 100.0),# 障碍物20
+    ]
+    
+    # 为每个障碍物生成从 z=0 到 z=5 的多个点
+    for x, y in base_obstacles:
+        for z in np.linspace(0, 5.0, 20):  # 生成20个等间隔高度的点
+            obstacle_positions.append((tunnel_start_x + x, tunnel_start_y + y, z))
+
+    return np.array(tunnel_points), np.array(obstacle_positions)
+
+
+
+
+def generate_random_points_around(point, num_points=100, range_size=1.0):
+    """
+    在一个点的周围生成随机点，形成填充。
+    :param point: 原始点 (x, y, z)
+    :param num_points: 在该点附近生成的随机点数量
+    :param range_size: 随机点的范围大小
+    :return: 随机点的数组
+    """
+    x, y, z = point
+    random_points = np.random.uniform(-range_size / 2, range_size / 2, (num_points, 3))  # 在立方体范围内随机分布
+    random_points += np.array([x, y, z])  # 平移到点的周围
+    return random_points
+
+def create_dense_pointcloud(points, num_points_per_point=100, range_size=1.0):
+    """
+    为每个输入的点生成大量随机点，形成稠密点云。
+    :param points: 原始点列表
+    :param num_points_per_point: 每个原始点生成的随机点数量
+    :param range_size: 每个原始点生成点云的范围
+    :return: 稠密点云
+    """
+    dense_points = []
+    for point in points:
+        random_points = generate_random_points_around(point, num_points=num_points_per_point, range_size=range_size)
+        dense_points.append(random_points)
+    return np.vstack(dense_points)
+
+def create_pointcloud_msg(points, frame_id):
+    # 创建 PointCloud2 消息
+    header = std_msgs.msg.Header()
+    header.stamp = rospy.Time.now()
+    header.frame_id = frame_id  # 你可以根据需要更改框架ID
+
+    # 将位置转换为 NumPy 数组并打包为 PointCloud2 消息
+    points_flat = points.astype(np.float32).flatten()  # 展平数组
+    cloud_msg = sensor_msgs.msg.PointCloud2()
+    cloud_msg.header = header
+    cloud_msg.height = 1
+    cloud_msg.width = points.shape[0]
+    cloud_msg.fields = [
+        sensor_msgs.msg.PointField(name="x", offset=0, datatype=sensor_msgs.msg.PointField.FLOAT32, count=1),
+        sensor_msgs.msg.PointField(name="y", offset=4, datatype=sensor_msgs.msg.PointField.FLOAT32, count=1),
+        sensor_msgs.msg.PointField(name="z", offset=8, datatype=sensor_msgs.msg.PointField.FLOAT32, count=1),
+    ]
+    cloud_msg.is_bigendian = False
+    cloud_msg.point_step = 12  # 每个点的字节大小
+    cloud_msg.row_step = cloud_msg.point_step * points.shape[0]
+    cloud_msg.data = points_flat.tobytes()
+    cloud_msg.is_dense = True
+
+    return cloud_msg
+
+def obstacle_publisher():
+    rospy.init_node('obstacle_publisher', anonymous=True)
+    
+    # 创建隧道和障碍物
+    tunnel_points1, obstacle_positions1 = create_tunnel_and_obstacles1()
+    tunnel_points, obstacle_positions = create_tunnel_and_obstacles()
+    # 在每个点周围生成稠密点云
+    dense_tunnel_points = create_dense_pointcloud(tunnel_points, num_points_per_point=1, range_size=1.0)
+    dense_obstacle_points = create_dense_pointcloud(obstacle_positions, num_points_per_point=50, range_size=1.0)
+
+    dense_tunnel_points1 = create_dense_pointcloud(tunnel_points1, num_points_per_point=1, range_size=1.0)
+    dense_obstacle_points1 = create_dense_pointcloud(obstacle_positions1, num_points_per_point=50, range_size=1.0)
+    # 合并隧道和障碍物的点云
+    combined_points = np.vstack((dense_tunnel_points, dense_obstacle_points,dense_tunnel_points1, dense_obstacle_points1))
+
+    pub_cloud = rospy.Publisher('cloud_registered', sensor_msgs.msg.PointCloud2, queue_size=10)
+    
+    rate = rospy.Rate(100)  # 发布频率 1 Hz
+
+    # 创建合并后的点云消息
+    cloud_msg = create_pointcloud_msg(combined_points, frame_id="world")
+
+    while not rospy.is_shutdown():
+        # 每次循环中只发布消息，而不重新生成点
+        pub_cloud.publish(cloud_msg)
+
+        rospy.loginfo(f"Published tunnel and obstacles with {len(combined_points)} points.")
+        rate.sleep()
+
+if __name__ == '__main__':
+    try:
+        obstacle_publisher()
+    except rospy.ROSInterruptException:
+        pass
+```	
+接着启动剩下的节点：
+```
+source devel/setup.bash
+roslaunch fsm_ctrl swarm.launch
+```
+上述为启动用户指令输入界面，通过socket通信切换指令
+```
+source devel/setup.bash
+roslaunch fsm_ctrl single2.launch 
+```
+上述同时启动状态机节点和mavros
+```
+source devel/setup.bash
+roslaunch ego_planner happy_fly.launch 
+```
+上述启动Ego Planner规划器
+```
+source devel/setup.bash
+roslaunch so3_quadrotor_simulator simulator_example.launch 
+```
+上述启动仿真器rviz
+
+启动节点后我们在rviz中首先订阅PointCloud2的点云类型，这里的点云类型是我们模拟的无人机机载电脑通过网线接收到的来自于Mid——360的点云信息
+
+![image](https://github.com/user-attachments/assets/863aaab0-a6f6-42b9-a57a-0ddf8d90628c)
+
+如上述所示的流程添加点云可视化，轨迹可视化，此时我们发现无人机的位置在0，0，1，这里我们也可以调节simulator_example.launch的参数来实现初始rviz中位置的变化
+
+![1](https://github.com/user-attachments/assets/213e618f-b688-4184-8850-41daac91abde)
+
+具体实现流程如下效果所示
+
+https://github.com/user-attachments/assets/55cd8bfb-0d76-46a6-b050-dcfe4a1d222c
+
+在仿真过程中，我们直接使用自带的so3仿真器，无人机可以视为质点，不具备大小体积，此时调节advanced参数中的障碍物膨胀系数也没有作用，在仿真中该参数不被读入。因此我们可能会遇到几种特殊的情况
+
+![0466ef17dea67fedfd7375b2588060e](https://github.com/user-attachments/assets/184cf3aa-48dd-4570-83d2-6d6bb791fcfb)
+
+暂时没有特别好的解决办法，也会出现偶然报错卡着不动，但是Ego Planner的replan重规划是没有问题的，逻辑是正确的，确保无人机处在障碍物外部，将无人机从障碍物内部退离开，规划的时候以垂直的方向推离开。出现卡顿卡住不动可能因为so3仿真中的无人机没有具体完备的动力学模型，或者电脑无法同时处理那么多replan的新点，问题不大。
+
+关于规划只给一个起点一个终点的情况，这个跟具体地图的尺度有关系，如果地图尺度很大，那么无人机会出现飞行问题，不一样按照最靠前的方向飞行，可能会出现如下图所示的情况：
+
+![23ece35e267911d4f42069886b17ceb](https://github.com/user-attachments/assets/34b42b0a-4913-44bb-9f5b-d200caf46195)
+
+但至少能够保证，飞机能够避障，也在尽力尝试飞向目标点，最终到达目标点。
+
+
+![e0b00a88d3ec871e78c85ca11d3f9ac](https://github.com/user-attachments/assets/f509432a-8745-4321-a49f-b3b7ec1597f7)
+
+因此，在实际飞行比赛中，我们尽可能的多设置途径点，也就是在拐弯的地方设置拐点，增加拐点的数量，确保飞机以正方向向前探索。
+
+总体效果图如下，此处设置了一个回到原来初始点坐标的规划。
+
+![6569a13c6dbccd467c290aea6c06c03](https://github.com/user-attachments/assets/5c21511d-5786-496e-ab60-d8b632b3c1ac)
+
+值得一提的是，我们的探索方案是需要知道起点和终点的具体点坐标的，我们的逻辑是基于起点和目标终点的路径规划，而不是一个彻头彻尾的未知区域探索方案，先验的坐标信息很关键，如果丧失了先验坐标信息，我们将无法完成自主陌生环境探索。因此后续未来可以尝试将无人机的规划方式向无人车的规划方式靠拢，无人车是全局RRT，局部teb，可以实现在定位飘的情况下仍然按照相对坐标，朝着局部前沿点运行，但是飞机依赖于nmpc控制（或者原始的PX4自带的控制），此控制方法依赖无人机的闭环反馈位置姿态信息，如果没有准确的坐标反馈闭环信息，无人机的控制会出现巨大问题，坐标飘了几米甚至几十厘米就可能引起炸机，为此，有两个可行的方向：
+
+1.优化适合人工长廊的LIO定位方法，我们用的是RA-LIO，也尝试过FAST——LIO2（z轴飘非常严重，完全实现不了闭环控制），但是效果均不是很好。
+
+可以参考香港大学https://github.com/hku-mars/FAST_LIO
+
+2.重新改变规划逻辑,以探索未知区域为核心，但定位漂移仍然无法实现无人机的控制。
+
+可以参考香港科技大学周老师https://github.com/HKUST-Aerial-Robotics/FUEL
+
+所以关键问题在于：如何在洞穴中控制无人机飞行！！！关键在于精准的定位信息！！！因此也回归问题1。
 
 ### 4.2 运动控制及状态机部分讲解
 
@@ -404,6 +998,14 @@ make px4_fmu-v6c_default upload #烧录固件
 ### 4.3 SLAM部分讲解
 
 等待补充。
+
+如下图所示，该部分由于Mid-360存在安装角度，一般为14-16°左右，在LaserMapping.cpp文件中的雷达初始化角度修正代码，
+
+每次启动无人机，都会自动修正雷达坐标系和世界坐标系，理论上不加下面的代码的话，需要雷达正向水平朝上安装。
+
+![9ef6a3181a4ecd286573067a5c9a8f6](https://github.com/user-attachments/assets/e28cbcda-1f0b-40b6-98a4-5084d1854a59)
+
+如果遇到坐标系不统一（比较明显的飘）的问题，可以采用以下方法调试：在认为水平的地方启动雷达，查看lidar节点终端输出的theta参数，将theta直接赋值为测量的认为水平地方的theta值。
 
 ### 4.4 视觉识别部分讲解
 
